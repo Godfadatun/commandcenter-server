@@ -4,6 +4,7 @@ dotenv.config();
 
 import { AppDataSource } from "../data-source";
 import { seedEventTypes } from "./event-types.seed";
+import { seedSchedules } from "./schedules.seed";
 
 const run = async () => {
   try {
@@ -12,6 +13,9 @@ const run = async () => {
 
     console.log("Seeding EventTypes...");
     await seedEventTypes();
+
+    console.log("\nSeeding Schedules + Events...");
+    await seedSchedules();
 
     console.log("\n✓ All seeds complete");
     process.exit(0);
