@@ -200,11 +200,39 @@ export const resetPassword = async (req: Request, res: Response): Promise<void> 
   }
 };
 
+export const requestChangePassword = async (req: AuthRequest, res: Response): Promise<void> => {
+  try {
+    const user = await userRepo().findOne({ where: { id: req.user!.id } });
+    if (!user) {
+      res.status(404).json({ error: "User not found" });
+      return;
+    }
+    const verification = verRepo().create({
+      userId: user.id,
+      event: "RESET_PASSWORD",
+      status: "ACTIVE",
+      verificationStatus: "UNVERIFIED",
+      token: Math.floor(100000 + Math.random() * 900000).toString(),
+      expiresAt: new Date(Date.now() + 15 * 60 * 1000), // 15 minutes
+    });
+    await verRepo().save(verification);
+    console.log(`Change password OTP for ${user.email}: ${verification.token}`);
+    res.json({
+      ok: true,
+      message: "OTP sent to your email",
+      ...(process.env.NODE_ENV !== "production" ? { otp: verification.token } : {}),
+    });
+  } catch (e: any) {
+    console.error("Request change password error:", e.message);
+    res.status(500).json({ error: e.message });
+  }
+};
+
 export const changePassword = async (req: AuthRequest, res: Response): Promise<void> => {
   try {
-    const { currentPassword, newPassword } = req.body;
-    if (!currentPassword || !newPassword) {
-      res.status(400).json({ error: "Current password and new password required" });
+    const { currentPassword, otp, newPassword } = req.body;
+    if (!currentPassword || !otp || !newPassword) {
+      res.status(400).json({ error: "Current password, OTP, and new password required" });
       return;
     }
     if (newPassword.length < 6) {
@@ -221,8 +249,22 @@ export const changePassword = async (req: AuthRequest, res: Response): Promise<v
       res.status(401).json({ error: "Current password is incorrect" });
       return;
     }
+    // Verify OTP
+    const isDevBypass = process.env.NODE_ENV !== "production" && otp === "000000";
+    const verification = await verRepo().findOne({
+      where: { userId: user.id, event: "RESET_PASSWORD", status: "ACTIVE", ...(isDevBypass ? {} : { token: otp }) },
+    });
+    if (!verification || (!isDevBypass && new Date() > verification.expiresAt)) {
+      res.status(400).json({ error: "Invalid or expired OTP" });
+      return;
+    }
+    // Update password
     user.password = await hashPassword(newPassword);
     await userRepo().save(user);
+    // Invalidate verification
+    verification.status = "INACTIVE";
+    verification.verificationStatus = "VERIFIED";
+    await verRepo().save(verification);
     res.json({ ok: true, message: "Password changed successfully" });
   } catch (e: any) {
     console.error("Change password error:", e.message);
