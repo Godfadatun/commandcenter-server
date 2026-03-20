@@ -95,10 +95,12 @@ export const verify = async (req: Request, res: Response): Promise<void> => {
       res.status(404).json({ error: "User not found" });
       return;
     }
+    // In development, accept 000000 as a universal OTP for testing
+    const isDevBypass = process.env.NODE_ENV !== "production" && otp === "000000";
     const verification = await verRepo().findOne({
-      where: { userId: user.id, event: "VERIFY_EMAIL", status: "ACTIVE", token: otp },
+      where: { userId: user.id, event: "VERIFY_EMAIL", status: "ACTIVE", ...(isDevBypass ? {} : { token: otp }) },
     });
-    if (!verification || new Date() > verification.expiresAt) {
+    if (!verification || (!isDevBypass && new Date() > verification.expiresAt)) {
       res.status(400).json({ error: "Invalid or expired OTP" });
       return;
     }
