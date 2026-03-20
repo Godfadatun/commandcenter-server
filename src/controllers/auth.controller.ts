@@ -1,4 +1,5 @@
 import { Request, Response } from "express";
+import { AuthRequest } from "../middleware/auth";
 import { AppDataSource } from "../data-source";
 import { User } from "../entities/User";
 import { Verification } from "../entities/Verification";
@@ -195,6 +196,36 @@ export const resetPassword = async (req: Request, res: Response): Promise<void> 
     res.json({ ok: true, message: "Password reset successfully" });
   } catch (e: any) {
     console.error("Reset password error:", e.message);
+    res.status(500).json({ error: e.message });
+  }
+};
+
+export const changePassword = async (req: AuthRequest, res: Response): Promise<void> => {
+  try {
+    const { currentPassword, newPassword } = req.body;
+    if (!currentPassword || !newPassword) {
+      res.status(400).json({ error: "Current password and new password required" });
+      return;
+    }
+    if (newPassword.length < 6) {
+      res.status(400).json({ error: "New password must be at least 6 characters" });
+      return;
+    }
+    const user = await userRepo().findOne({ where: { id: req.user!.id } });
+    if (!user) {
+      res.status(404).json({ error: "User not found" });
+      return;
+    }
+    const valid = await comparePassword(currentPassword, user.password);
+    if (!valid) {
+      res.status(401).json({ error: "Current password is incorrect" });
+      return;
+    }
+    user.password = await hashPassword(newPassword);
+    await userRepo().save(user);
+    res.json({ ok: true, message: "Password changed successfully" });
+  } catch (e: any) {
+    console.error("Change password error:", e.message);
     res.status(500).json({ error: e.message });
   }
 };
