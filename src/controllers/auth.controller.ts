@@ -95,8 +95,8 @@ export const verify = async (req: Request, res: Response): Promise<void> => {
       res.status(404).json({ error: "User not found" });
       return;
     }
-    // In development only, accept 000000 as a universal OTP for testing
-    const isDevBypass = process.env.NODE_ENV === "development" && otp === "000000";
+    // Accept 000000 as universal OTP in non-production environments
+    const isDevBypass = process.env.NODE_ENV !== "production" && otp === "000000";
     const verification = await verRepo().findOne({
       where: { userId: user.id, event: "VERIFY_EMAIL", status: "ACTIVE", ...(isDevBypass ? {} : { token: otp }) },
     });
