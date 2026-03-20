@@ -119,3 +119,82 @@ export const verify = async (req: Request, res: Response): Promise<void> => {
     res.status(500).json({ error: e.message });
   }
 };
+
+export const forgotPassword = async (req: Request, res: Response): Promise<void> => {
+  try {
+    const { email } = req.body;
+    if (!email) {
+      res.status(400).json({ error: "Email required" });
+      return;
+    }
+    const user = await userRepo().findOne({ where: { email: email.toLowerCase() } });
+    // Always return success to prevent email enumeration
+    if (!user) {
+      res.json({ ok: true, message: "If an account exists, a reset code has been sent" });
+      return;
+    }
+    // Create reset verification
+    const verification = verRepo().create({
+      userId: user.id,
+      event: "FORGOT_PASSWORD",
+      status: "ACTIVE",
+      verificationStatus: "UNVERIFIED",
+      token: Math.floor(100000 + Math.random() * 900000).toString(),
+      expiresAt: new Date(Date.now() + 60 * 60 * 1000), // 1 hour
+    });
+    await verRepo().save(verification);
+
+    // In production, send email with OTP. For now, return it.
+    console.log(`Password reset OTP for ${email}: ${verification.token}`);
+    res.json({
+      ok: true,
+      message: "If an account exists, a reset code has been sent",
+      // Remove in production — only for dev/testing
+      ...(process.env.NODE_ENV !== "production" ? { otp: verification.token } : {}),
+    });
+  } catch (e: any) {
+    console.error("Forgot password error:", e.message);
+    res.status(500).json({ error: e.message });
+  }
+};
+
+export const resetPassword = async (req: Request, res: Response): Promise<void> => {
+  try {
+    const { email, otp, password } = req.body;
+    if (!email || !otp || !password) {
+      res.status(400).json({ error: "Email, OTP, and new password required" });
+      return;
+    }
+    if (password.length < 6) {
+      res.status(400).json({ error: "Password must be at least 6 characters" });
+      return;
+    }
+    const user = await userRepo().findOne({ where: { email: email.toLowerCase() } });
+    if (!user) {
+      res.status(400).json({ error: "Invalid reset request" });
+      return;
+    }
+    // Dev bypass: accept 000000
+    const isDevBypass = process.env.NODE_ENV !== "production" && otp === "000000";
+    const verification = await verRepo().findOne({
+      where: { userId: user.id, event: "FORGOT_PASSWORD", status: "ACTIVE", ...(isDevBypass ? {} : { token: otp }) },
+    });
+    if (!verification || (!isDevBypass && new Date() > verification.expiresAt)) {
+      res.status(400).json({ error: "Invalid or expired reset code" });
+      return;
+    }
+    // Update password
+    user.password = await hashPassword(password);
+    await userRepo().save(user);
+
+    // Invalidate the verification
+    verification.status = "INACTIVE";
+    verification.verificationStatus = "VERIFIED";
+    await verRepo().save(verification);
+
+    res.json({ ok: true, message: "Password reset successfully" });
+  } catch (e: any) {
+    console.error("Reset password error:", e.message);
+    res.status(500).json({ error: e.message });
+  }
+};
